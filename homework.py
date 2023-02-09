@@ -1,9 +1,10 @@
-import os
-import requests
-import time
-import sys
-
 import logging
+import os
+import sys
+import time
+from http import HTTPStatus
+
+import requests
 import telegram
 from dotenv import load_dotenv
 
@@ -41,6 +42,7 @@ def check_tokens(tokens):
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
+    logging.debug('Попытка направить сообщение в чат')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.debug(f'В чат направлено сообщение {message}')
@@ -59,11 +61,10 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT,
                                 headers=HEADERS,
                                 params=payload)
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             raise Exception('Сервер пал смертью храбрых')
         return response.json()
     except Exception as error:
-        logging.error(f'Обшибка при обращении к API. {error}')
         raise Exception(f'Обшибка при обращении к API. {error}')
 
 
@@ -72,37 +73,25 @@ def check_response(response):
     В качестве параметра функция получает ответ API, приведенный к типам
     данных Python.
     """
-    if type(response) != dict:
-        logging.error('Неверный тип полученных данных (не словарь)')
-        raise TypeError
+    if not isinstance(response, dict):
+        raise TypeError('Неверный тип полученных данных (не словарь)')
     if 'homeworks' not in response:
-        logging.error('В ответе отсутствует ключ homeworks')
-        raise KeyError
-    if type(response['homeworks']) != list:
-        logging.error('Неверный тип полученных данных (не список)')
-        raise TypeError
-    return response
+        raise KeyError('В ответе отсутствует ключ homeworks')
+    if not isinstance(response['homeworks'], list):
+        raise TypeError('Неверный тип полученных данных (не список)')
+    return response.get('homeworks')
 
 
 def parse_status(homework):
-    """Извлекает из информации о конкретной домашней работе статус этой работы.
-    В качестве параметра функция получает только один элемент из
-    списка домашних работ. В случае успеха, функция возвращает подготовленную
-    для отправки в Telegram строку, содержащую один из вердиктов словаря
-    HOMEWORK_VERDICTS.
-    """
-    try:
-        if 'homework_name' not in homework:
-            raise Exception('В ответе API нет нет ключа homework_name')
-        homework_name = homework.get('homework_name')
-        status = homework.get('status')
-        if status not in HOMEWORK_VERDICTS:
-            raise Exception('Такой статус ДЗ мне не знаком.')
-        verdict = HOMEWORK_VERDICTS.get(status)
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    except Exception as error:
-        logging.error(f'Ошибка при определении статуса ДЗ. {error}')
-        raise Exception(f'Ошибка при определении статуса ДЗ. {error}')
+    """Извлекает из информации о конкретной дз статус этой работы."""
+    if 'homework_name' not in homework:
+        raise KeyError('В ответе API нет нет ключа homework_name')
+    homework_name = homework.get('homework_name')
+    status = homework.get('status')
+    if status not in HOMEWORK_VERDICTS:
+        raise KeyError('Такой статус ДЗ мне не знаком.')
+    verdict = HOMEWORK_VERDICTS.get(status)
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
@@ -120,14 +109,16 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            check_response(response)
-            homework = response.get('homeworks')[0]
-            if homework.get('status') != current_status:
-                current_status = homework.get('status')
-                message = parse_status(homework)
-                send_message(bot, message)
-            else:
-                logging.debug('Новых статусов в ответе нет')
+            homeworks = check_response(response)
+            # Пустая строка, пустой словарь, пустое множество, пустой кортеж
+            # и цифра 0 тоже равны if False
+            if homeworks:
+                message = parse_status(homeworks[0])
+                if message != current_status:
+                    send_message(bot, message)
+                    current_status = message
+                else:
+                    logging.debug('Новых статусов в ответе нет')
         except Exception as error:
             logging.error(f'Сбой в работе программы: {error}')
             message = f'Сбой в работе программы: {error}'
