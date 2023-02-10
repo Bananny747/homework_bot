@@ -56,6 +56,7 @@ def get_api_answer(timestamp):
     успешного запроса должна вернуть ответ API, приведя его из формата JSON
     к типам данных Python.
     """
+    logging.debug('Попытка обращения к API yandex.')
     try:
         payload = {'from_date': timestamp}
         response = requests.get(ENDPOINT,
@@ -75,11 +76,14 @@ def check_response(response):
     """
     if not isinstance(response, dict):
         raise TypeError('Неверный тип полученных данных (не словарь)')
+    if 'current_date' not in response:
+        raise KeyError('В ответе отсутствует ключ current_date')
     if 'homeworks' not in response:
         raise KeyError('В ответе отсутствует ключ homeworks')
-    if not isinstance(response['homeworks'], list):
+    homeworks = response['homeworks']
+    if not isinstance(homeworks, list):
         raise TypeError('Неверный тип полученных данных (не список)')
-    return response.get('homeworks')
+    return homeworks
 
 
 def parse_status(homework):
